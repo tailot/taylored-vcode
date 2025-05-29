@@ -1,0 +1,90 @@
+{
+  "name": "taylored-highlighter",
+  "displayName": "Taylored Highlighter",
+  "description": "Highlights changes from .taylored files in the VS Code editor, processing all files in the .taylored directory.",
+  "version": "0.0.4",
+  "publisher": "vscode-extension-developer",
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:tailot/taylored-vcode.git"
+  },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Linters",
+    "Programming Languages",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:taylored-highlighter.refreshAllHighlights",
+    "workspaceContains:**/.taylored/*"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "taylored-highlighter.refreshAllHighlights",
+        "title": "Taylored: Refresh Highlights from All .taylored Files",
+        "category": "Taylored"
+      }
+    ],
+    "languages": [
+      {
+        "id": "taylored-diff",
+        "aliases": ["Taylored Diff", "taylored"],
+        "extensions": [".taylored"],
+        "configuration": "./language-configuration.json" 
+      }
+    ],
+    "configuration": {
+      "title": "Taylored Highlighter",
+      "properties": {
+        "tayloredHighlighter.addedLineUnderlineStyle": {
+          "type": "string",
+          "default": "dotted",
+          "description": "Underline style for added lines (e.g., 'solid', 'dotted', 'dashed').",
+          "enum": ["solid", "dotted", "dashed", "double", "wavy"]
+        },
+        "tayloredHighlighter.addedLineUnderlineColor": {
+          "type": "string",
+          "default": "green",
+          "description": "Generic underline color for added lines (used if specific themes are not set or as a fallback)."
+        },
+        "tayloredHighlighter.addedLineUnderlineColorLight": {
+          "type": "string",
+          "default": "darkgreen",
+          "description": "Underline color for added lines when using a light theme."
+        },
+        "tayloredHighlighter.addedLineUnderlineColorDark": {
+          "type": "string",
+          "default": "lightgreen",
+          "description": "Underline color for added lines when using a dark theme."
+        },
+        "tayloredHighlighter.removedLineGutterIconPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path (relative to the extension folder or absolute) to an SVG/PNG icon for removed lines. Leave empty to use a default indicator."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "@types/node": "18.x", 
+    "typescript": "^5.0.0",
+    "eslint": "^8.0.0",
+    "@typescript-eslint/parser": "^5.0.0",
+    "@typescript-eslint/eslint-plugin": "^5.0.0"
+  },
+  "dependencies": {
+    "parse-diff": "^0.11.1"
+  }
+}

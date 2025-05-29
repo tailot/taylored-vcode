@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "ES2024", // Compatibile con versioni recenti di Node.js usate da VS Code
+    "lib": ["ES2024"],
+    "outDir": "dist", // Cartella di output per i file JavaScript compilati
+    "rootDir": "src", // Cartella principale dei file TypeScript
+    "sourceMap": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "moduleResolution": "node",
+    "resolveJsonModule": true
+  },
+  "include": ["src/**/*.ts"], // Includi tutti i file .ts nella cartella src
+  "exclude": ["node_modules", ".vscode-test"]
+}
