@@ -3,10 +3,10 @@
 
 import * as vscode from 'vscode';
 import * as FsWithPath from 'path';
-import parseDiffFunction, { File as ParsedDiffFile, Hunk as ParsedDiffHunk, Change as ParsedDiffChange } from 'parse-diff';
+import parseDiffFunction, { File as ParsedDiffFile, Chunk as ParsedDiffHunk, Change as ParsedDiffChange } from 'parse-diff';
 
 let addedLineDecorationType: vscode.TextEditorDecorationType;
-let removedLineGutterDecorationType: vscode.TextEditorDecorationType;
+let removedLineUnderlineDecorationType: vscode.TextEditorDecorationType;
 
 const activeDecorations = new Map<string, { add: vscode.DecorationOptions[], remove: vscode.DecorationOptions[] }>();
 let tayloredFileWatcher: vscode.FileSystemWatcher | undefined;
@@ -33,7 +33,15 @@ export function activate(context: vscode.ExtensionContext) {
             disposeDecorations();
             loadConfiguration();
             if (activeDecorations.size > 0) {
-                applyAllDecorationsToVisibleEditors();
+                vscode.window.withProgress({
+                    location: vscode.ProgressLocation.Notification,
+                    title: "Taylored: Configuration changed, reprocessing...",
+                    cancellable: false
+                }, async (progress) => {
+                    progress.report({ increment: 0, message: "Updating highlights..." });
+                    await scanAndProcessAllTayloredFiles();
+                    progress.report({ increment: 100, message: "Update complete." });
+                });
             }
         }
     }));
@@ -77,13 +85,13 @@ function setupFileWatcher() {
         const workspaceFolder = vscode.workspace.workspaceFolders[0];
         const watchPatternPath = FsWithPath.join('.taylored', '*.taylored');
         const pattern = new vscode.RelativePattern(workspaceFolder, watchPatternPath);
-        
+
         tayloredFileWatcher = vscode.workspace.createFileSystemWatcher(pattern);
 
         const reprocessAll = async (uri: vscode.Uri, eventType: string) => {
             vscode.window.withProgress({
                 location: vscode.ProgressLocation.Notification,
-                title: `Taylored: .taylored file ${eventType === 'delete' ? 'deleted' : 'modified'}`,
+                title: `Taylored: .taylored file ${eventType === 'delete' ? 'deleted' : eventType === 'create' ? 'created' : 'modified'}`,
                 cancellable: false
             }, async (progress) => {
                 progress.report({ increment: 0, message: "Updating highlights..." });
@@ -104,83 +112,67 @@ function setupFileWatcher() {
 
 function loadConfiguration() {
     const config = vscode.workspace.getConfiguration('tayloredHighlighter');
-    
-    const underlineStyle = config.get<string>('addedLineUnderlineStyle', 'dotted');
-    const commonUnderlineClr = config.get<string>('addedLineUnderlineColor', 'green');
-    const lightUnderlineClr = config.get<string>('addedLineUnderlineColorLight', 'darkgreen');
-    const darkUnderlineClr = config.get<string>('addedLineUnderlineColorDark', 'lightgreen');
 
     disposeDecorations();
 
+    const addedUnderlineStyle = config.get<string>('addedLineUnderlineStyle', 'dotted');
+    const commonAddedUnderlineClr = config.get<string>('addedLineUnderlineColor', 'green');
+    const lightAddedUnderlineClr = config.get<string>('addedLineUnderlineColorLight', 'darkgreen');
+    const darkAddedUnderlineClr = config.get<string>('addedLineUnderlineColorDark', 'lightgreen');
+
     addedLineDecorationType = vscode.window.createTextEditorDecorationType({
-        textDecoration: `underline ${underlineStyle}`, 
-        light: { color: lightUnderlineClr, textDecoration: `underline ${underlineStyle} ${lightUnderlineClr}` },
-        dark: { color: darkUnderlineClr, textDecoration: `underline ${underlineStyle} ${darkUnderlineClr}`  },
-        color: commonUnderlineClr, 
+        textDecoration: `underline ${addedUnderlineStyle}`,
+        light: { color: lightAddedUnderlineClr, textDecoration: `underline ${addedUnderlineStyle} ${lightAddedUnderlineClr}` },
+        dark: { color: darkAddedUnderlineClr, textDecoration: `underline ${addedUnderlineStyle} ${darkAddedUnderlineClr}` },
+        color: commonAddedUnderlineClr,
+        isWholeLine: true,
     });
 
-    let gutterIconPathConfig = config.get<string>('removedLineGutterIconPath', '');
-    let gutterIconOptions: { dark?: vscode.Uri; light?: vscode.Uri } = {};
+    const removedUnderlineStyle = config.get<string>('removedLineUnderlineStyle', 'dashed');
+    const commonRemovedUnderlineClr = config.get<string>('removedLineUnderlineColor', 'red');
+    const lightRemovedUnderlineClr = config.get<string>('removedLineUnderlineColorLight', '#990000');
+    const darkRemovedUnderlineClr = config.get<string>('removedLineUnderlineColorDark', '#ff7f7f');
 
-    if (gutterIconPathConfig && extensionContext) {
-        try {
-            const iconPath = FsWithPath.isAbsolute(gutterIconPathConfig) ? gutterIconPathConfig : FsWithPath.join(extensionContext.extensionPath, gutterIconPathConfig);
-            const iconUri = vscode.Uri.file(iconPath);
-            gutterIconOptions.dark = iconUri;
-            gutterIconOptions.light = iconUri;
-        } catch (e) {
-            // Fail silently or show minimal warning if icon path is bad, default will be used.
-            console.warn(`Could not resolve custom gutter icon path: ${gutterIconPathConfig}. Using default. Error: ${e}`);
-            gutterIconPathConfig = ''; 
-        }
-    }
-    
-    if (!gutterIconPathConfig) { 
-        const defaultIconSvg = `<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><text x='0' y='12' fill='%23C74E39'>➖</text></svg>`;
-        gutterIconOptions.dark = vscode.Uri.parse(`data:image/svg+xml;utf8,${encodeURIComponent(defaultIconSvg)}`);
-        gutterIconOptions.light = vscode.Uri.parse(`data:image/svg+xml;utf8,${encodeURIComponent(defaultIconSvg)}`);
-    }
-
-    removedLineGutterDecorationType = vscode.window.createTextEditorDecorationType({
+    removedLineUnderlineDecorationType = vscode.window.createTextEditorDecorationType({
+        textDecoration: `underline ${removedUnderlineStyle}`,
+        light: { color: lightRemovedUnderlineClr, textDecoration: `underline ${removedUnderlineStyle} ${lightRemovedUnderlineClr}` },
+        dark: { color: darkRemovedUnderlineClr, textDecoration: `underline ${removedUnderlineStyle} ${darkRemovedUnderlineClr}` },
+        color: commonRemovedUnderlineClr,
         isWholeLine: true,
-        gutterIconPath: gutterIconOptions.dark, 
-        gutterIconSize: 'contain',
     });
 }
 
 function disposeDecorations() {
     addedLineDecorationType?.dispose();
-    removedLineGutterDecorationType?.dispose();
+    removedLineUnderlineDecorationType?.dispose();
 }
 
 async function scanAndProcessAllTayloredFiles() {
-    clearAllDecorationsGlobally(); 
-    activeDecorations.clear();    
+    clearAllDecorationsGlobally();
+    activeDecorations.clear();
 
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
         vscode.window.showWarningMessage("No workspace folder open. Cannot find .taylored directory.");
         return;
     }
-    const workspaceRoot = workspaceFolders[0].uri; 
+    const workspaceRoot = workspaceFolders[0].uri;
     const tayloredDirUri = vscode.Uri.joinPath(workspaceRoot, '.taylored');
 
     let tayloredFileUris: [string, vscode.FileType][] = [];
     try {
         tayloredFileUris = await vscode.workspace.fs.readDirectory(tayloredDirUri);
     } catch (error) {
-        // Silently fail if .taylored dir doesn't exist, or show minimal warning.
-        // console.warn(`.taylored directory not found or unreadable at ${tayloredDirUri.fsPath}: ${error}`);
         return;
     }
 
     const allFileDecorations = new Map<string, { adds: Map<number, vscode.DecorationOptions>, removes: Map<number, vscode.DecorationOptions> }>();
     let processedFileCount = 0;
 
-    for (const [fileName, fileType] of tayloredFileUris) {
-        if (fileType === vscode.FileType.File && fileName.endsWith('.taylored')) {
+    for (const [fileNameOuter, fileType] of tayloredFileUris) {
+        if (fileType === vscode.FileType.File && fileNameOuter.endsWith('.taylored')) {
             processedFileCount++;
-            const tayloredFileUri = vscode.Uri.joinPath(tayloredDirUri, fileName);
+            const tayloredFileUri = vscode.Uri.joinPath(tayloredDirUri, fileNameOuter);
             try {
                 const fileContentBytes = await vscode.workspace.fs.readFile(tayloredFileUri);
                 const diffContent = Buffer.from(fileContentBytes).toString('utf8');
@@ -194,9 +186,9 @@ async function scanAndProcessAllTayloredFiles() {
 
                     const cleanedFilePath = targetFilePathRaw.replace(/^[ab]\//, '');
                     const targetFileUri = await findFileInWorkspace(cleanedFilePath, workspaceRoot);
-                    
+
                     if (!targetFileUri) {
-                        console.warn(`Source file not found in workspace: ${cleanedFilePath} (referenced in ${fileName})`);
+                        console.warn(`Source file not found in workspace: ${cleanedFilePath} (referenced in ${fileNameOuter})`);
                         continue;
                     }
 
@@ -205,43 +197,77 @@ async function scanAndProcessAllTayloredFiles() {
                         allFileDecorations.set(targetUriString, { adds: new Map(), removes: new Map() });
                     }
                     const decorationsForThisTarget = allFileDecorations.get(targetUriString)!;
-                    
-                    (diffFile.chunks || diffFile.hunks || []).forEach((chunk: ParsedDiffHunk) => {
-                        let actualNewLineCounter = chunk.newStart; 
-                        let actualOldLineCounter = chunk.oldStart; 
 
-                        chunk.changes.forEach((change: ParsedDiffChange) => {
+                    (diffFile.chunks || []).forEach((chunk: ParsedDiffHunk) => {
+                        let actualNewLineCounter = chunk.newStart;
+                        let actualOldLineCounter = chunk.oldStart;
+
+                        let changeIndex = 0;
+                        while (changeIndex < chunk.changes.length) {
+                            const change = chunk.changes[changeIndex];
+                            const currentIterationNewLineCounter = actualNewLineCounter;
+
                             if (change.type === 'add') {
-                                const lineForDecoration = actualNewLineCounter - 1; 
-                                if (lineForDecoration >=0) { 
-                                    if (!decorationsForThisTarget.adds.has(lineForDecoration)) { 
-                                        const range = new vscode.Range(lineForDecoration, 0, lineForDecoration, Number.MAX_SAFE_INTEGER); 
-                                        decorationsForThisTarget.adds.set(lineForDecoration, { range, hoverMessage: `Added (from ${fileName}): ${change.content.substring(1)}` });
+                                let addBlockLineCount = 0;
+                                let tempChangeIndex = changeIndex;
+                                const firstAddedLineNumberInNewFile = currentIterationNewLineCounter - 1;
+
+                                // Conta le righe 'add' consecutive e avanza actualNewLineCounter per ognuna
+                                while (tempChangeIndex < chunk.changes.length && chunk.changes[tempChangeIndex].type === 'add') {
+                                    addBlockLineCount++;
+                                    actualNewLineCounter++; // Avanza per ogni riga 'add' nel blocco
+                                    tempChangeIndex++;
+                                }
+
+                                if (firstAddedLineNumberInNewFile >= 0 && addBlockLineCount > 0) {
+                                    // Applica una decorazione per l'intero blocco, sulla prima riga del blocco
+                                    if (!decorationsForThisTarget.adds.has(firstAddedLineNumberInNewFile)) {
+                                        const range = new vscode.Range(firstAddedLineNumberInNewFile, 0, firstAddedLineNumberInNewFile, Number.MAX_SAFE_INTEGER);
+                                        const pluralSuffix = addBlockLineCount > 1 ? 's' : '';
+                                        const hoverMessage = `Added (from ${fileNameOuter}): ${addBlockLineCount} line${pluralSuffix} involved.`;
+                                        decorationsForThisTarget.adds.set(firstAddedLineNumberInNewFile, { range, hoverMessage: hoverMessage });
                                     }
                                 }
-                                actualNewLineCounter++; 
+                                // actualOldLineCounter NON cambia per le aggiunte
+                                changeIndex = tempChangeIndex; // Muovi l'indice principale oltre questo blocco di aggiunte
+
                             } else if (change.type === 'del') {
-                                const gutterLineForDeletion = actualNewLineCounter - 1; 
-                                if (gutterLineForDeletion >=0) { 
-                                    if (!decorationsForThisTarget.removes.has(gutterLineForDeletion)) { 
-                                        const range = new vscode.Range(gutterLineForDeletion, 0, gutterLineForDeletion, 0);
-                                        decorationsForThisTarget.removes.set(gutterLineForDeletion, { range, hoverMessage: `Removed (from ${fileName}): ${change.content.substring(1)}` });
+                                let delBlockLineCount = 0;
+                                let tempChangeIndex = changeIndex;
+
+                                while (tempChangeIndex < chunk.changes.length && chunk.changes[tempChangeIndex].type === 'del') {
+                                    delBlockLineCount++;
+                                    actualOldLineCounter++;
+                                    tempChangeIndex++;
+                                }
+
+                                const lineToUnderlineForDeletionBlock = currentIterationNewLineCounter - 1;
+
+                                if (lineToUnderlineForDeletionBlock >= 0 && delBlockLineCount > 0) {
+                                    if (!decorationsForThisTarget.removes.has(lineToUnderlineForDeletionBlock)) {
+                                        const range = new vscode.Range(lineToUnderlineForDeletionBlock, 0, lineToUnderlineForDeletionBlock, Number.MAX_SAFE_INTEGER);
+                                        const pluralSuffix = delBlockLineCount > 1 ? 's' : '';
+                                        const hoverMessage = `Removed (from ${fileNameOuter}): ${delBlockLineCount} line${pluralSuffix} involved.`;
+                                        decorationsForThisTarget.removes.set(lineToUnderlineForDeletionBlock, { range, hoverMessage: hoverMessage });
                                     }
                                 }
-                                actualOldLineCounter++; 
+                                changeIndex = tempChangeIndex;
                             } else if (change.type === 'normal') {
                                 actualOldLineCounter++;
                                 actualNewLineCounter++;
+                                changeIndex++;
+                            } else {
+                                changeIndex++;
                             }
-                        });
+                        }
                     });
                 }
             } catch (error: any) {
-                vscode.window.showErrorMessage(`Error processing ${fileName}: ${error.message || error}`);
+                vscode.window.showErrorMessage(`Error processing ${fileNameOuter}: ${error.message || error}`);
             }
         }
     }
-    
+
     allFileDecorations.forEach((decs, uriString) => {
         activeDecorations.set(uriString, {
             add: Array.from(decs.adds.values()),
@@ -253,8 +279,8 @@ async function scanAndProcessAllTayloredFiles() {
 
     if (processedFileCount > 0 && activeDecorations.size === 0) {
         vscode.window.showInformationMessage("No applicable changes found in .taylored files to highlight.");
-    } else if (processedFileCount === 0 && tayloredFileUris.length > 0){
-         vscode.window.showInformationMessage("No .taylored files found to process in the .taylored directory.");
+    } else if (processedFileCount === 0 && tayloredFileUris.length > 0) {
+        vscode.window.showInformationMessage("No .taylored files found to process in the .taylored directory.");
     }
 }
 
@@ -262,16 +288,16 @@ function applyDecorationsToEditor(editor: vscode.TextEditor) {
     const editorUriString = editor.document.uri.toString();
     const decorationsForFile = activeDecorations.get(editorUriString);
 
-    if (!addedLineDecorationType || !removedLineGutterDecorationType) {
+    if (!addedLineDecorationType || !removedLineUnderlineDecorationType) {
         return;
     }
 
     if (decorationsForFile) {
         editor.setDecorations(addedLineDecorationType, decorationsForFile.add);
-        editor.setDecorations(removedLineGutterDecorationType, decorationsForFile.remove);
+        editor.setDecorations(removedLineUnderlineDecorationType, decorationsForFile.remove);
     } else {
         editor.setDecorations(addedLineDecorationType, []);
-        editor.setDecorations(removedLineGutterDecorationType, []);
+        editor.setDecorations(removedLineUnderlineDecorationType, []);
     }
 }
 
@@ -286,8 +312,8 @@ function clearAllDecorationsGlobally() {
         if (addedLineDecorationType) {
             editor.setDecorations(addedLineDecorationType, []);
         }
-        if (removedLineGutterDecorationType) {
-            editor.setDecorations(removedLineGutterDecorationType, []);
+        if (removedLineUnderlineDecorationType) {
+            editor.setDecorations(removedLineUnderlineDecorationType, []);
         }
     });
 }
@@ -298,7 +324,7 @@ async function findFileInWorkspace(filePath: string, workspaceRoot: vscode.Uri):
         await vscode.workspace.fs.stat(possiblePathInWorkspace);
         return possiblePathInWorkspace;
     } catch { /* continue */ }
-    
+
     if (FsWithPath.isAbsolute(filePath)) {
         try {
             const absoluteUri = vscode.Uri.file(filePath);
@@ -310,7 +336,7 @@ async function findFileInWorkspace(filePath: string, workspaceRoot: vscode.Uri):
     const searchPattern = `**/${filePath.startsWith('/') ? filePath.substring(1) : filePath}`;
     const files = await vscode.workspace.findFiles(searchPattern, '**/node_modules/**', 1);
     if (files.length > 0) return files[0];
-    
+
     console.warn(`File not found: ${filePath} (relative to ${workspaceRoot.fsPath})`);
     return undefined;
 }
