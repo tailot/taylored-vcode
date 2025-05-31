@@ -1,24 +1,141 @@
-// Copyright (c) 2025 tailot@gmail.com
-// SPDX-License-Identifier: MIT
-
 import { exec } from 'child_process';
+import * as os from 'os';
 import * as vscode from 'vscode';
 import * as FsWithPath from 'path';
-import parseDiffFunction, { File as ParsedDiffFile, Chunk as ParsedDiffHunk, Change as ParsedDiffChange } from 'parse-diff';
+import parseDiffFunction, { File as ParsedDiffFile, Chunk as ParsedDiffHunk } from 'parse-diff';
 
 async function isTayloredToolAvailable(): Promise<boolean> {
     return new Promise((resolve) => {
-        exec('taylored --help', (error, stdout, stderr) => {
+        const command = os.platform() === 'win32' ? 'where taylored' : 'which taylored';
+        exec(command, (error, stdout, stderr) => {
             if (error) {
-                console.warn("Taylored tool not found or error during execution:", error);
+                console.warn(`Taylored tool not found in PATH (checked with '${command}'). Error: ${error.message.trim()}`);
                 resolve(false);
             } else {
-                console.log("Taylored tool found.");
-                resolve(true);
+                if (stdout && stdout.trim().length > 0) {
+                    console.log(`Taylored tool found in PATH: ${stdout.trim()}`);
+                    resolve(true);
+                } else {
+                    console.warn(`'${command}' executed successfully but produced no output. Assuming taylored tool is not available.`);
+                    resolve(false);
+                }
             }
         });
     });
 }
+
+function sanitizeFilenameForTayloredCli(filename: string): string {
+    let result = filename.replace(/"/g, '');
+    result = result.replace(/-/g, '');
+    result = result.replace(/ /g, '');
+    return result;
+}
+
+async function runTayloredCommand(args: string[], options: { cwd: string, successMessage?: string, showOutput?: boolean }): Promise<{ success: boolean, stdout?: string, stderr?: string }> {
+    return new Promise((resolve) => {
+        const escapeArgForShell = (arg: string): string => {
+            if (typeof arg !== 'string') {
+                arg = String(arg);
+            }
+
+            if ((/^--?[a-zA-Z0-9][a-zA-Z0-9-]*$/.test(arg) && !/[\s"'\\]/.test(arg)) || arg === "-" || arg === "--") {
+                return arg;
+            }
+
+            if (arg === "" || /[\s"'\\]/.test(arg) ) {
+                return `"${arg.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+            }
+            
+            if (arg.startsWith('-')) {
+                 return `"${arg.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+            }
+
+            return arg;
+        };
+        const command = `taylored ${args.map(escapeArgForShell).join(' ')}`;
+
+        vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: `Taylored: Executing '${command}'...`,
+            cancellable: false
+        }, async (_progress) => {
+            const shellToUse = os.platform() === 'win32' ? (process.env.ComSpec || 'cmd.exe') : '/bin/sh';
+            exec(command, { cwd: options.cwd, shell: shellToUse }, (error, stdout, stderr) => {
+                if (error) {
+                    console.error(`Error executing '${command}':`, stderr || error.message);
+                    vscode.window.showErrorMessage(`Taylored command failed: ${command}\nError: ${stderr || error.message}`, { modal: true });
+                    resolve({ success: false, stderr: stderr || error.message, stdout });
+                } else {
+                    if (options.successMessage) {
+                        vscode.window.showInformationMessage(options.successMessage);
+                    }
+                    if (options.showOutput && stdout && stdout.trim().length > 0) {
+                         vscode.window.showInformationMessage(`Command: ${command}\nOutput:\n${stdout}`, { modal: true });
+                    } else if (options.showOutput && stdout && stdout.trim().length === 0) {
+                         vscode.window.showInformationMessage(`Command: ${command}\nExecuted successfully, no specific output produced.`, { modal: true });
+                    }
+                    console.log(`Command '${command}' executed successfully. Output:\n${stdout}`);
+                    if (args[0] === '--add' || args[0] === '--remove' || args[0] === '--save' || args[0] === '--upgrade' || args[0] === '--offset') {
+                        vscode.commands.executeCommand('taylored-highlighter.refreshAllHighlights');
+                    }
+                    resolve({ success: true, stdout, stderr });
+                }
+            });
+        });
+    });
+}
+
+async function getTayloredFilesList(workspaceRoot: string): Promise<string[] | undefined> {
+    return new Promise((resolve) => {
+        exec('taylored --list', { cwd: workspaceRoot }, (error, stdout, stderr) => {
+            if (error) {
+                if (stderr && (stderr.toLowerCase().includes("'.taylored' directory not found") || stderr.toLowerCase().includes("no such file or directory"))) {
+                    console.log("'.taylored' directory does not exist or no files found for --list.");
+                    resolve([]);
+                } else {
+                    console.error("Error listing taylored files:", stderr || stdout);
+                    vscode.window.showErrorMessage(`Error listing .taylored files: ${stderr || stdout || error.message}`);
+                    resolve(undefined);
+                }
+            } else {
+                const files = stdout.trim().split('\n')
+                                  .map(line => line.trim())
+                                  .filter(line => line.length > 0)
+                                  .map(fileNameFromList => {
+                                      let processedName = fileNameFromList.replace(/\.taylored$/, '');
+                                      while (
+                                          processedName.length >= 2 &&
+                                          processedName.startsWith('"') &&
+                                          processedName.endsWith('"')
+                                      ) {
+                                          processedName = processedName.substring(1, processedName.length - 1);
+                                      }
+                                      return processedName.trim();
+                                  })
+                                  .filter(f => f.length > 0);
+                resolve(files);
+            }
+        });
+    });
+}
+
+async function getGitBranches(workspaceRoot: string): Promise<string[] | undefined> {
+    return new Promise((resolve) => {
+        exec('git branch --list --no-color', { cwd: workspaceRoot }, (error, stdout, stderr) => {
+            if (error) {
+                console.error("Error listing Git branches:", stderr || stdout);
+                vscode.window.showErrorMessage(`Error listing Git branches: ${stderr || stdout || error.message}`);
+                resolve(undefined);
+            } else {
+                const branches = stdout.trim().split('\n')
+                                   .map(branch => branch.replace(/^\*/, '').trim())
+                                   .filter(branch => branch.length > 0 && !branch.startsWith('HEAD detached at'));
+                resolve(branches);
+            }
+        });
+    });
+}
+
 
 let addedLineDecorationType: vscode.TextEditorDecorationType;
 let removedLineUnderlineDecorationType: vscode.TextEditorDecorationType;
@@ -34,59 +151,114 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.executeCommand('setContext', 'taylored:isAvailable', tayloredAvailable);
 
     if (tayloredAvailable) {
-        context.subscriptions.push(vscode.commands.registerCommand('taylored.showContextMenu', async () => {
-            const workspaceRootCheck = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-            if (!workspaceRootCheck) {
-                vscode.window.showErrorMessage("No workspace folder open. Cannot access .taylored files.");
-                return; // Exit early
-            }
-
-            const tayloredFiles = await getTayloredFilesList(); // ensure await is used
-            if (tayloredFiles === undefined) { // Explicitly check for undefined in case of error
-                // Error message already shown by getTayloredFilesList
-                return;
-            }
-            if (tayloredFiles.length === 0) {
-                vscode.window.showInformationMessage("No .taylored files found in the .taylored directory.");
+        context.subscriptions.push(vscode.commands.registerCommand('taylored.showMainMenu', async () => {
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (!workspaceRoot) {
+                vscode.window.showErrorMessage("No workspace folder open.");
                 return;
             }
 
-            const selectedFile = await vscode.window.showQuickPick(tayloredFiles, {
-                placeHolder: "Select a .taylored file to apply"
+            const actionItems: (vscode.QuickPickItem & { actionKey: string })[] = [
+                { label: "--add", description: "Apply a selected .taylored file (taylored --add)", actionKey: "add" },
+                { label: "--remove", description: "Remove changes from a .taylored file (taylored --remove)", actionKey: "remove" },
+                { label: "--verify-add", description: "Check if a patch can be applied (taylored --verify-add)", actionKey: "verify-add" },
+                { label: "--verify-remove", description: "Check if a patch can be removed (taylored --verify-remove)", actionKey: "verify-remove" },
+                { label: "--save", description: "Create a .taylored file from branch changes (taylored --save)", actionKey: "save" },
+                { label: "--upgrade", description: "Attempt to upgrade all existing .taylored files (taylored --upgrade)", actionKey: "upgrade" },
+                { label: "--offset", description: "Update offsets in a .taylored file (taylored --offset)", actionKey: "offset" },
+                { label: "--data", description: "Extract commit message from a .taylored file (taylored --data)", actionKey: "data" },
+            ];
+
+            const selectedAction = await vscode.window.showQuickPick(actionItems, {
+                placeHolder: "Select a Taylored action to perform"
             });
 
-            if (selectedFile) {
-                // Re-check workspaceRoot just before usage, though it's unlikely to change mid-command.
-                const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-                if (!workspaceRoot) {
-                    vscode.window.showErrorMessage("No workspace folder open. Cannot apply .taylored file.");
+            if (!selectedAction) return;
+
+            const tayloredFiles = await getTayloredFilesList(workspaceRoot);
+            if (tayloredFiles === undefined && ['add', 'remove', 'verify-add', 'verify-remove', 'offset', 'data'].includes(selectedAction.actionKey)) {
+                 vscode.window.showErrorMessage("Could not get the list of .taylored files.");
+                return;
+            }
+
+            let originalSelectedFile: string | undefined;
+            if (['add', 'remove', 'verify-add', 'verify-remove', 'offset', 'data'].includes(selectedAction.actionKey)) {
+                if (!tayloredFiles || tayloredFiles.length === 0) {
+                    vscode.window.showInformationMessage("No .taylored files found in the .taylored directory.");
                     return;
                 }
-
-                // selectedFile is the base name from getTayloredFilesList
-                const fileNameForTool = selectedFile; // taylored tool handles names with/without .taylored
-
-                vscode.window.withProgress({
-                    location: vscode.ProgressLocation.Notification,
-                    title: `Taylored: Applying ${fileNameForTool}...`,
-                    cancellable: false
-                }, async (progress) => {
-                    exec(`taylored --add ${fileNameForTool}`, { cwd: workspaceRoot }, (error, stdout, stderr) => {
-                        if (error) {
-                            console.error(`Error applying ${fileNameForTool}:`, stderr);
-                            vscode.window.showErrorMessage(`Failed to apply ${fileNameForTool}.taylored: ${stderr || error.message}`);
-                        } else {
-                            vscode.window.showInformationMessage(`${fileNameForTool}.taylored applied successfully.`);
-                            // Optionally, trigger a refresh of highlights if your extension manages them.
-                            vscode.commands.executeCommand('taylored-highlighter.refreshAllHighlights');
-                        }
-                    });
+                originalSelectedFile = await vscode.window.showQuickPick(tayloredFiles, {
+                    placeHolder: `Select a .taylored file for '${selectedAction.label}'`
                 });
+                if (!originalSelectedFile) return;
+            }
+
+            let commandFileArg: string | undefined;
+            if (originalSelectedFile) {
+                commandFileArg = sanitizeFilenameForTayloredCli(originalSelectedFile);
+            }
+
+
+            switch (selectedAction.actionKey) {
+                case 'add':
+                    if (originalSelectedFile && commandFileArg !== undefined) {
+                        await runTayloredCommand(['--add', commandFileArg], { cwd: workspaceRoot, successMessage: `${originalSelectedFile}.taylored applied successfully.`, showOutput: true });
+                    }
+                    break;
+                case 'remove':
+                    if (originalSelectedFile && commandFileArg !== undefined) {
+                        await runTayloredCommand(['--remove', commandFileArg], { cwd: workspaceRoot, successMessage: `Changes from ${originalSelectedFile}.taylored removed successfully.`, showOutput: true });
+                    }
+                    break;
+                case 'verify-add':
+                     if (originalSelectedFile && commandFileArg !== undefined) {
+                        await runTayloredCommand(['--verify-add', commandFileArg], { cwd: workspaceRoot, successMessage: `Application check for ${originalSelectedFile}.taylored completed.`, showOutput: true });
+                    }
+                    break;
+                case 'verify-remove':
+                    if (originalSelectedFile && commandFileArg !== undefined) {
+                        await runTayloredCommand(['--verify-remove', commandFileArg], { cwd: workspaceRoot, successMessage: `Removal check for ${originalSelectedFile}.taylored completed.`, showOutput: true });
+                    }
+                    break;
+                case 'save':
+                    const branches = await getGitBranches(workspaceRoot);
+                    if (!branches || branches.length === 0) {
+                        vscode.window.showInformationMessage("No Git branches found or error listing them.");
+                        return;
+                    }
+                    const selectedBranch = await vscode.window.showQuickPick(branches, {
+                        placeHolder: "Select a branch to save the .taylored file from"
+                    });
+                    if (selectedBranch) {
+                        await runTayloredCommand(['--save', selectedBranch], { cwd: workspaceRoot, successMessage: `.taylored file for branch '${selectedBranch}' saved successfully (if changes were pure).`, showOutput: true });
+                    }
+                    break;
+                case 'upgrade':
+                    await runTayloredCommand(['--upgrade'], { cwd: workspaceRoot, successMessage: "Attempt to upgrade .taylored files completed.", showOutput: true });
+                    break;
+                case 'offset':
+                    if (originalSelectedFile && commandFileArg !== undefined) {
+                        const commitMessage = await vscode.window.showInputBox({
+                            prompt: "Enter an optional commit message for the offset operation",
+                            placeHolder: "Commit message (optional)"
+                        });
+                        const offsetArgs = ['--offset', commandFileArg];
+                        if (commitMessage !== undefined && commitMessage !== null && commitMessage.trim() !== '') {
+                            offsetArgs.push('--message', commitMessage);
+                        }
+                        await runTayloredCommand(offsetArgs, { cwd: workspaceRoot, successMessage: `Offset update for ${originalSelectedFile}.taylored completed.`, showOutput: true });
+                    }
+                    break;
+                case 'data':
+                    if (originalSelectedFile && commandFileArg !== undefined) {
+                       await runTayloredCommand(['--data', commandFileArg], { cwd: workspaceRoot, showOutput: true });
+                    }
+                    break;
             }
         }));
-        console.log("Taylored tool is available. Context menu registered.");
+        console.log("Taylored tool is available. Main menu registered.");
     } else {
-        console.log("Taylored tool not found. Context menu will not be available.");
+        console.log("Taylored tool not found. Main menu will not be available.");
     }
 
     loadConfiguration();
@@ -108,7 +280,7 @@ export async function activate(context: vscode.ExtensionContext) {
             disposeDecorations();
             loadConfiguration();
             if (activeDecorations.size > 0) {
-                vscode.window.withProgress({
+                 vscode.window.withProgress({
                     location: vscode.ProgressLocation.Notification,
                     title: "Taylored: Configuration changed, reprocessing...",
                     cancellable: false
@@ -179,11 +351,18 @@ function setupFileWatcher() {
         tayloredFileWatcher.onDidCreate(uri => reprocessAll(uri, 'create'));
         tayloredFileWatcher.onDidDelete(uri => reprocessAll(uri, 'delete'));
 
-        extensionContext.subscriptions.push(tayloredFileWatcher);
+        if (extensionContext) {
+            extensionContext.subscriptions.push(tayloredFileWatcher);
+            console.log(`File watcher for '${watchPatternPath}' activated.`);
+        } else {
+            console.error("Extension context not available for file watcher disposal.");
+            tayloredFileWatcher.dispose();
+        }
     } else {
-        vscode.window.showWarningMessage("No workspace folder found. FileSystemWatcher for .taylored directory will not be activated.");
+        vscode.window.showWarningMessage("No workspace folder found. FileSystemWatcher for the .taylored directory will not be activated.");
     }
 }
+
 
 function loadConfiguration() {
     const config = vscode.workspace.getConfiguration('tayloredHighlighter');
@@ -228,7 +407,6 @@ async function scanAndProcessAllTayloredFiles() {
 
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
-        vscode.window.showWarningMessage("No workspace folder open. Cannot find .taylored directory.");
         return;
     }
     const workspaceRoot = workspaceFolders[0].uri;
@@ -238,6 +416,7 @@ async function scanAndProcessAllTayloredFiles() {
     try {
         tayloredFileUris = await vscode.workspace.fs.readDirectory(tayloredDirUri);
     } catch (error) {
+        console.log(".taylored directory not found or error reading it. No highlights applied.");
         return;
     }
 
@@ -251,7 +430,11 @@ async function scanAndProcessAllTayloredFiles() {
             try {
                 const fileContentBytes = await vscode.workspace.fs.readFile(tayloredFileUri);
                 const diffContent = Buffer.from(fileContentBytes).toString('utf8');
-                if (!diffContent.trim()) continue;
+
+                if (!diffContent.trim()) {
+                    console.log(`Empty .taylored file: ${fileNameOuter}`);
+                    continue;
+                }
 
                 const parsedDiffs: ParsedDiffFile[] = parseDiffFunction(diffContent);
 
@@ -261,6 +444,7 @@ async function scanAndProcessAllTayloredFiles() {
 
                     const cleanedFilePath = targetFilePathRaw.replace(/^[ab]\//, '');
                     const targetFileUri = await findFileInWorkspace(cleanedFilePath, workspaceRoot);
+
 
                     if (!targetFileUri) {
                         console.warn(`Source file not found in workspace: ${cleanedFilePath} (referenced in ${fileNameOuter})`);
@@ -285,26 +469,25 @@ async function scanAndProcessAllTayloredFiles() {
                             if (change.type === 'add') {
                                 let addBlockLineCount = 0;
                                 let tempChangeIndex = changeIndex;
-                                const firstAddedLineNumberInNewFile = currentIterationNewLineCounter - 1;
+                                const firstAddedLineNumberInNewFile_0_indexed = currentIterationNewLineCounter - 1;
 
-                                // Conta le righe 'add' consecutive e avanza actualNewLineCounter per ognuna
                                 while (tempChangeIndex < chunk.changes.length && chunk.changes[tempChangeIndex].type === 'add') {
                                     addBlockLineCount++;
-                                    actualNewLineCounter++; // Avanza per ogni riga 'add' nel blocco
+                                    actualNewLineCounter++;
                                     tempChangeIndex++;
                                 }
 
-                                if (firstAddedLineNumberInNewFile >= 0 && addBlockLineCount > 0) {
-                                    // Applica una decorazione per l'intero blocco, sulla prima riga del blocco
-                                    if (!decorationsForThisTarget.adds.has(firstAddedLineNumberInNewFile)) {
-                                        const range = new vscode.Range(firstAddedLineNumberInNewFile, 0, firstAddedLineNumberInNewFile, Number.MAX_SAFE_INTEGER);
+                                if (firstAddedLineNumberInNewFile_0_indexed >= 0 && addBlockLineCount > 0) {
+                                    if (!decorationsForThisTarget.adds.has(firstAddedLineNumberInNewFile_0_indexed)) {
+                                        const lineToDecorate = firstAddedLineNumberInNewFile_0_indexed;
+                                        const range = new vscode.Range(lineToDecorate, 0, lineToDecorate, Number.MAX_SAFE_INTEGER);
                                         const pluralSuffix = addBlockLineCount > 1 ? 's' : '';
-                                        const hoverMessage = `Added (from ${fileNameOuter}): ${addBlockLineCount} line${pluralSuffix} involved.`;
-                                        decorationsForThisTarget.adds.set(firstAddedLineNumberInNewFile, { range, hoverMessage: hoverMessage });
+                                        const hoverMessageContent = `Block of ${addBlockLineCount} added line${pluralSuffix} (from ${fileNameOuter}). Starts here.`;
+                                        const hoverMessage = new vscode.MarkdownString(hoverMessageContent);
+                                        decorationsForThisTarget.adds.set(lineToDecorate, { range, hoverMessage });
                                     }
                                 }
-                                // actualOldLineCounter NON cambia per le aggiunte
-                                changeIndex = tempChangeIndex; // Muovi l'indice principale oltre questo blocco di aggiunte
+                                changeIndex = tempChangeIndex;
 
                             } else if (change.type === 'del') {
                                 let delBlockLineCount = 0;
@@ -316,14 +499,15 @@ async function scanAndProcessAllTayloredFiles() {
                                     tempChangeIndex++;
                                 }
 
-                                const lineToUnderlineForDeletionBlock = currentIterationNewLineCounter - 1;
+                                const lineToUnderlineForDeletionBlock_0_indexed = currentIterationNewLineCounter -1;
 
-                                if (lineToUnderlineForDeletionBlock >= 0 && delBlockLineCount > 0) {
-                                    if (!decorationsForThisTarget.removes.has(lineToUnderlineForDeletionBlock)) {
-                                        const range = new vscode.Range(lineToUnderlineForDeletionBlock, 0, lineToUnderlineForDeletionBlock, Number.MAX_SAFE_INTEGER);
+                                if (lineToUnderlineForDeletionBlock_0_indexed >= 0 && delBlockLineCount > 0) {
+                                    if (!decorationsForThisTarget.removes.has(lineToUnderlineForDeletionBlock_0_indexed)) {
+                                        const range = new vscode.Range(lineToUnderlineForDeletionBlock_0_indexed, 0, lineToUnderlineForDeletionBlock_0_indexed, Number.MAX_SAFE_INTEGER);
                                         const pluralSuffix = delBlockLineCount > 1 ? 's' : '';
-                                        const hoverMessage = `Removed (from ${fileNameOuter}): ${delBlockLineCount} line${pluralSuffix} involved.`;
-                                        decorationsForThisTarget.removes.set(lineToUnderlineForDeletionBlock, { range, hoverMessage: hoverMessage });
+                                        const hoverMessageContent = `Block of ${delBlockLineCount} removed line${pluralSuffix} after this (from ${fileNameOuter}).`;
+                                        const hoverMessage = new vscode.MarkdownString(hoverMessageContent);
+                                        decorationsForThisTarget.removes.set(lineToUnderlineForDeletionBlock_0_indexed, { range, hoverMessage });
                                     }
                                 }
                                 changeIndex = tempChangeIndex;
@@ -339,6 +523,7 @@ async function scanAndProcessAllTayloredFiles() {
                 }
             } catch (error: any) {
                 vscode.window.showErrorMessage(`Error processing ${fileNameOuter}: ${error.message || error}`);
+                console.error(`Error reading or processing ${tayloredFileUri.fsPath}:`, error);
             }
         }
     }
@@ -353,48 +538,21 @@ async function scanAndProcessAllTayloredFiles() {
     applyAllDecorationsToVisibleEditors();
 
     if (processedFileCount > 0 && activeDecorations.size === 0) {
-        vscode.window.showInformationMessage("No applicable changes found in .taylored files to highlight.");
     } else if (processedFileCount === 0 && tayloredFileUris.length > 0) {
-        vscode.window.showInformationMessage("No .taylored files found to process in the .taylored directory.");
     }
 }
 
-async function getTayloredFilesList(): Promise<string[] | undefined> {
-    return new Promise((resolve) => {
-        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        if (!workspaceRoot) {
-            // This case is already handled by the caller or should be.
-            // vscode.window.showErrorMessage("No workspace folder open. Cannot determine .taylored directory.");
-            resolve(undefined);
-            return;
-        }
-        exec('taylored --list', { cwd: workspaceRoot }, (error, stdout, stderr) => {
-            if (error) {
-                // Check if error is because .taylored directory doesn't exist
-                if (stderr && stderr.toLowerCase().includes("'.taylored' directory not found") || stderr.toLowerCase().includes("no such file or directory")) {
-                    console.log("'.taylored' directory does not exist or no files found. This is not necessarily an error for listing.");
-                    resolve([]); // Resolve with empty list, command handler will inform user
-                } else {
-                    console.error("Error listing taylored files:", stderr || stdout);
-                    vscode.window.showErrorMessage(`Error listing .taylored files: ${stderr || stdout || error.message}`);
-                    resolve(undefined);
-                }
-            } else {
-                const files = stdout.trim().split('\n')
-                                  .map(f => f.replace(/\.taylored$/, '').trim())
-                                  .filter(f => f.length > 0); // Ensure non-empty strings
-                resolve(files);
-            }
-        });
-    });
-}
 
 function applyDecorationsToEditor(editor: vscode.TextEditor) {
     const editorUriString = editor.document.uri.toString();
     const decorationsForFile = activeDecorations.get(editorUriString);
 
     if (!addedLineDecorationType || !removedLineUnderlineDecorationType) {
-        return;
+        loadConfiguration();
+        if (!addedLineDecorationType || !removedLineUnderlineDecorationType) {
+            console.error("Failed to load decoration types. Highlights not applied.");
+            return;
+        }
     }
 
     if (decorationsForFile) {
@@ -424,27 +582,37 @@ function clearAllDecorationsGlobally() {
 }
 
 async function findFileInWorkspace(filePath: string, workspaceRoot: vscode.Uri): Promise<vscode.Uri | undefined> {
-    const possiblePathInWorkspace = vscode.Uri.joinPath(workspaceRoot, filePath);
+    const normalizedFilePath = FsWithPath.normalize(filePath);
+
+    const possiblePathInWorkspace = vscode.Uri.joinPath(workspaceRoot, normalizedFilePath);
     try {
         await vscode.workspace.fs.stat(possiblePathInWorkspace);
         return possiblePathInWorkspace;
-    } catch { /* continue */ }
+    } catch {  }
 
-    if (FsWithPath.isAbsolute(filePath)) {
-        try {
-            const absoluteUri = vscode.Uri.file(filePath);
-            await vscode.workspace.fs.stat(absoluteUri);
-            return absoluteUri;
-        } catch { /* continue */ }
+    if (FsWithPath.isAbsolute(normalizedFilePath)) {
+        const absoluteUri = vscode.Uri.file(normalizedFilePath);
+        if (absoluteUri.fsPath.startsWith(workspaceRoot.fsPath)) {
+            try {
+                await vscode.workspace.fs.stat(absoluteUri);
+                return absoluteUri;
+            } catch {  }
+        }
     }
 
-    const searchPattern = `**/${filePath.startsWith('/') ? filePath.substring(1) : filePath}`;
-    const files = await vscode.workspace.findFiles(searchPattern, '**/node_modules/**', 1);
-    if (files.length > 0) return files[0];
-
-    console.warn(`File not found: ${filePath} (relative to ${workspaceRoot.fsPath})`);
+    const searchPatternRelative = `**/${normalizedFilePath.startsWith(FsWithPath.sep) ? normalizedFilePath.substring(1) : normalizedFilePath}`;
+    try {
+        const filesByRelativePath = await vscode.workspace.findFiles(searchPatternRelative, '**/node_modules/**', 1);
+        if (filesByRelativePath.length > 0) {
+            return filesByRelativePath[0];
+        }
+    } catch (findError) {
+        console.error(`Error while searching for file with pattern '${searchPatternRelative}':`, findError);
+    }
+    
     return undefined;
 }
+
 
 export function deactivate() {
     disposeDecorations();
@@ -452,4 +620,5 @@ export function deactivate() {
         tayloredFileWatcher.dispose();
     }
     activeDecorations.clear();
+    console.log("Taylored extension deactivated.");
 }

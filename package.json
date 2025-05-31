@@ -1,91 +1,104 @@
 {
   "name": "taylored-highlighter",
-  "displayName": "Taylored Highlighter",
-  "description": "Highlights changes from .taylored files in the VS Code editor, processing all files in the .taylored directory.",
-  "version": "0.0.4",
-  "publisher": "vscode-extension-developer",
+  "displayName": "Taylored Highlighter & Manager",
+  "description": "Highlights changes from .taylored patch files and provides commands to manage them.",
+  "version": "0.8.0",
+  "publisher": "tailot",
   "repository": {
     "type": "git",
-    "url": "git@github.com:tailot/taylored-vcode.git"
+    "url": "https://github.com/tailot/taylored-vcode"
   },
   "engines": {
     "vscode": "^1.80.0"
   },
   "categories": [
-    "Linters",
-    "Programming Languages",
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished",
-    "onCommand:taylored-highlighter.refreshAllHighlights",
-    "workspaceContains:**/.taylored/*"
+    "onStartupFinished"
   ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "taylored-highlighter.refreshAllHighlights",
-        "title": "Taylored: Refresh Highlights from All .taylored Files",
+        "command": "taylored.showMainMenu",
+        "title": "Taylored: Show Actions Menu",
         "category": "Taylored"
       },
       {
-        "command": "taylored.showContextMenu",
-        "title": "Taylored: Show Actions"
+        "command": "taylored-highlighter.refreshAllHighlights",
+        "title": "Taylored: Reload Highlights",
+        "category": "Taylored"
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "taylored.showMainMenu",
+          "when": "taylored:isAvailable"
+        },
+        {
+          "command": "taylored-highlighter.refreshAllHighlights",
+          "when": "taylored:isAvailable"
+        }
+      ],
       "editor/context": [
         {
-          "when": "taylored:isAvailable",
-          "command": "taylored.showContextMenu",
+          "command": "taylored.showMainMenu",
+          "when": "taylored:isAvailable && resourceLangId != 'log' && resourceLangId != 'search-result'",
           "group": "navigation"
         }
       ],
       "explorer/context": [
         {
+          "command": "taylored.showMainMenu",
           "when": "taylored:isAvailable",
-          "command": "taylored.showContextMenu",
           "group": "navigation"
         }
       ]
     },
-    "languages": [
-      {
-        "id": "taylored-diff",
-        "aliases": ["Taylored Diff", "taylored"],
-        "extensions": [".taylored"],
-        "configuration": "./language-configuration.json" 
-      }
-    ],
     "configuration": {
       "title": "Taylored Highlighter",
       "properties": {
         "tayloredHighlighter.addedLineUnderlineStyle": {
           "type": "string",
           "default": "dotted",
-          "description": "Underline style for added lines (e.g., 'solid', 'dotted', 'dashed').",
-          "enum": ["solid", "dotted", "dashed", "double", "wavy"]
+          "description": "Underline style for added lines (e.g., 'solid', 'dashed', 'dotted', 'double')."
         },
         "tayloredHighlighter.addedLineUnderlineColor": {
           "type": "string",
           "default": "green",
-          "description": "Generic underline color for added lines (used if specific themes are not set or as a fallback)."
+          "description": "Fallback color for the underline of added lines (CSS color name or hexadecimal)."
         },
         "tayloredHighlighter.addedLineUnderlineColorLight": {
           "type": "string",
           "default": "darkgreen",
-          "description": "Underline color for added lines when using a light theme."
+          "description": "Underline color for added lines for light themes."
         },
         "tayloredHighlighter.addedLineUnderlineColorDark": {
           "type": "string",
           "default": "lightgreen",
-          "description": "Underline color for added lines when using a dark theme."
+          "description": "Underline color for added lines for dark themes."
         },
-        "tayloredHighlighter.removedLineGutterIconPath": {
+        "tayloredHighlighter.removedLineUnderlineStyle": {
           "type": "string",
-          "default": "",
-          "description": "Path (relative to the extension folder or absolute) to an SVG/PNG icon for removed lines. Leave empty to use a default indicator."
+          "default": "dashed",
+          "description": "Underline style for lines preceding removals."
+        },
+        "tayloredHighlighter.removedLineUnderlineColor": {
+          "type": "string",
+          "default": "red",
+          "description": "Fallback color for the underline of removed lines."
+        },
+        "tayloredHighlighter.removedLineUnderlineColorLight": {
+          "type": "string",
+          "default": "#990000",
+          "description": "Underline color for removed lines for light themes."
+        },
+        "tayloredHighlighter.removedLineUnderlineColorDark": {
+          "type": "string",
+          "default": "#ff7f7f",
+          "description": "Underline color for removed lines for dark themes."
         }
       }
     }
@@ -98,7 +111,7 @@
   },
   "devDependencies": {
     "@types/vscode": "^1.80.0",
-    "@types/node": "18.x", 
+    "@types/node": "18.x",
     "typescript": "^5.0.0",
     "eslint": "^8.0.0",
     "@typescript-eslint/parser": "^5.0.0",
