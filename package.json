@@ -28,8 +28,28 @@
         "command": "taylored-highlighter.refreshAllHighlights",
         "title": "Taylored: Refresh Highlights from All .taylored Files",
         "category": "Taylored"
+      },
+      {
+        "command": "taylored.showContextMenu",
+        "title": "Taylored: Show Actions"
       }
     ],
+    "menus": {
+      "editor/context": [
+        {
+          "when": "taylored:isAvailable",
+          "command": "taylored.showContextMenu",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "when": "taylored:isAvailable",
+          "command": "taylored.showContextMenu",
+          "group": "navigation"
+        }
+      ]
+    },
     "languages": [
       {
         "id": "taylored-diff",

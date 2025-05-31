@@ -1,9 +1,24 @@
 // Copyright (c) 2025 tailot@gmail.com
 // SPDX-License-Identifier: MIT
 
+import { exec } from 'child_process';
 import * as vscode from 'vscode';
 import * as FsWithPath from 'path';
 import parseDiffFunction, { File as ParsedDiffFile, Chunk as ParsedDiffHunk, Change as ParsedDiffChange } from 'parse-diff';
+
+async function isTayloredToolAvailable(): Promise<boolean> {
+    return new Promise((resolve) => {
+        exec('taylored --help', (error, stdout, stderr) => {
+            if (error) {
+                console.warn("Taylored tool not found or error during execution:", error);
+                resolve(false);
+            } else {
+                console.log("Taylored tool found.");
+                resolve(true);
+            }
+        });
+    });
+}
 
 let addedLineDecorationType: vscode.TextEditorDecorationType;
 let removedLineUnderlineDecorationType: vscode.TextEditorDecorationType;
@@ -12,8 +27,68 @@ const activeDecorations = new Map<string, { add: vscode.DecorationOptions[], rem
 let tayloredFileWatcher: vscode.FileSystemWatcher | undefined;
 let extensionContext: vscode.ExtensionContext;
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
     extensionContext = context;
+
+    const tayloredAvailable = await isTayloredToolAvailable();
+    vscode.commands.executeCommand('setContext', 'taylored:isAvailable', tayloredAvailable);
+
+    if (tayloredAvailable) {
+        context.subscriptions.push(vscode.commands.registerCommand('taylored.showContextMenu', async () => {
+            const workspaceRootCheck = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (!workspaceRootCheck) {
+                vscode.window.showErrorMessage("No workspace folder open. Cannot access .taylored files.");
+                return; // Exit early
+            }
+
+            const tayloredFiles = await getTayloredFilesList(); // ensure await is used
+            if (tayloredFiles === undefined) { // Explicitly check for undefined in case of error
+                // Error message already shown by getTayloredFilesList
+                return;
+            }
+            if (tayloredFiles.length === 0) {
+                vscode.window.showInformationMessage("No .taylored files found in the .taylored directory.");
+                return;
+            }
+
+            const selectedFile = await vscode.window.showQuickPick(tayloredFiles, {
+                placeHolder: "Select a .taylored file to apply"
+            });
+
+            if (selectedFile) {
+                // Re-check workspaceRoot just before usage, though it's unlikely to change mid-command.
+                const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                if (!workspaceRoot) {
+                    vscode.window.showErrorMessage("No workspace folder open. Cannot apply .taylored file.");
+                    return;
+                }
+
+                // selectedFile is the base name from getTayloredFilesList
+                const fileNameForTool = selectedFile; // taylored tool handles names with/without .taylored
+
+                vscode.window.withProgress({
+                    location: vscode.ProgressLocation.Notification,
+                    title: `Taylored: Applying ${fileNameForTool}...`,
+                    cancellable: false
+                }, async (progress) => {
+                    exec(`taylored --add ${fileNameForTool}`, { cwd: workspaceRoot }, (error, stdout, stderr) => {
+                        if (error) {
+                            console.error(`Error applying ${fileNameForTool}:`, stderr);
+                            vscode.window.showErrorMessage(`Failed to apply ${fileNameForTool}.taylored: ${stderr || error.message}`);
+                        } else {
+                            vscode.window.showInformationMessage(`${fileNameForTool}.taylored applied successfully.`);
+                            // Optionally, trigger a refresh of highlights if your extension manages them.
+                            vscode.commands.executeCommand('taylored-highlighter.refreshAllHighlights');
+                        }
+                    });
+                });
+            }
+        }));
+        console.log("Taylored tool is available. Context menu registered.");
+    } else {
+        console.log("Taylored tool not found. Context menu will not be available.");
+    }
+
     loadConfiguration();
 
     context.subscriptions.push(vscode.commands.registerCommand('taylored-highlighter.refreshAllHighlights', async () => {
@@ -282,6 +357,36 @@ async function scanAndProcessAllTayloredFiles() {
     } else if (processedFileCount === 0 && tayloredFileUris.length > 0) {
         vscode.window.showInformationMessage("No .taylored files found to process in the .taylored directory.");
     }
+}
+
+async function getTayloredFilesList(): Promise<string[] | undefined> {
+    return new Promise((resolve) => {
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!workspaceRoot) {
+            // This case is already handled by the caller or should be.
+            // vscode.window.showErrorMessage("No workspace folder open. Cannot determine .taylored directory.");
+            resolve(undefined);
+            return;
+        }
+        exec('taylored --list', { cwd: workspaceRoot }, (error, stdout, stderr) => {
+            if (error) {
+                // Check if error is because .taylored directory doesn't exist
+                if (stderr && stderr.toLowerCase().includes("'.taylored' directory not found") || stderr.toLowerCase().includes("no such file or directory")) {
+                    console.log("'.taylored' directory does not exist or no files found. This is not necessarily an error for listing.");
+                    resolve([]); // Resolve with empty list, command handler will inform user
+                } else {
+                    console.error("Error listing taylored files:", stderr || stdout);
+                    vscode.window.showErrorMessage(`Error listing .taylored files: ${stderr || stdout || error.message}`);
+                    resolve(undefined);
+                }
+            } else {
+                const files = stdout.trim().split('\n')
+                                  .map(f => f.replace(/\.taylored$/, '').trim())
+                                  .filter(f => f.length > 0); // Ensure non-empty strings
+                resolve(files);
+            }
+        });
+    });
 }
 
 function applyDecorationsToEditor(editor: vscode.TextEditor) {
