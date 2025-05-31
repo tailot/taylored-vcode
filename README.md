@@ -1,71 +1,74 @@
-# Taylored Highlighter
+# Taylored VS Code Extension
 
 ## Overview
 
-Taylored Highlighter is a VS Code extension that highlights changes in your files based on `.taylored` files. These `.taylored` files should be located in a `.taylored` directory in the root of your workspace. The extension helps you visualize additions and deletions specified in these `.taylored` files directly within your editor.
+This VS Code extension integrates the `taylored` CLI to provide seamless interaction with `.taylored` files. It enhances the development workflow by highlighting added or removed lines, offering hover information, and automatically updating highlights based on file changes.
 
 ## Features
 
-*   **.taylored File Processing:** Reads and processes `.taylored` files from the `.taylored` directory at your workspace root.
-*   **Added Line Highlighting:** Highlights lines that have been added to a file. The style and color of the underline are configurable.
-*   **Removed Line Highlighting:** Highlights lines that have been removed from a file. The underline appears on the line *preceding* the actual deletion in the original file, but is displayed in the context of the new file's line numbering. The style and color of the underline are configurable.
-*   **Automatic Refresh:** Highlights are automatically updated whenever a `.taylored` file is saved, created, or deleted within the `.taylored` directory.
-*   **Manual Refresh Command:** A command is available to manually trigger a re-scan of all `.taylored` files and refresh the highlights.
-*   **Configurable Styles:** Offers configuration options for underline styles and colors, with separate settings for light and dark themes.
+- **Integration with `taylored` CLI**: Directly use `taylored` commands from within VS Code.
+- **Line Highlighting**: Visually distinguish added and removed lines as defined in `.taylored` files located in the `.taylored/` directory.
+- **Hover Information**: Get contextual information when hovering over highlighted lines.
+- **Customizable Highlighting Styles**: Customize the appearance of highlights, including styles and colors.
+- **Automatic Updates**: Highlights refresh automatically when relevant files are changed or after specific `taylored` commands are executed.
+- **File Watcher**: Monitors `.taylored` files for changes and updates highlights accordingly.
 
-## Usage
+## Prerequisites
 
-Once the Taylored Highlighter extension is active, it automatically looks for a `.taylored` directory in the root of your workspace. It then processes any `.taylored` files found within this directory to visualize the specified changes (additions or deletions) directly in the corresponding source files.
+- **`taylored` CLI**: The `taylored` command-line interface must be installed and accessible in your system's PATH.
 
-## Commands
+## Getting Started / Usage
 
-The following command is available via the VS Code command palette (Ctrl+Shift+P or Cmd+Shift+P):
+1.  **Installation**: Install the extension from the VS Code Marketplace.
+2.  **Ensure `taylored` CLI is installed**: Follow the `taylored` CLI installation instructions if you haven't already. Verify it's in your PATH by running `taylored --version` in your terminal.
+3.  **Open your project**: Open a project containing a `.taylored/` directory with `.taylored` files.
+4.  **Using `taylored` commands**: The extension provides a VS Code command palette menu (Quick Pick) to run `taylored` commands. Access this by opening the command palette (Ctrl+Shift+P or Cmd+Shift+P) and typing "Taylored:". The available commands are:
+    *   `--add`: Apply a selected .taylored file. (You'll be prompted to choose a `.taylored` file from your workspace).
+    *   `--remove`: Remove changes from a selected .taylored file. (You'll be prompted to choose a `.taylored` file).
+    *   `--verify-add`: Check if a selected .taylored patch can be applied. (You'll be prompted to choose a `.taylored` file).
+    *   `--verify-remove`: Check if a selected .taylored patch can be removed. (You'll be prompted to choose a `.taylored` file).
+    *   `--save`: Create a .taylored file from a selected branch's changes. (You'll be prompted to select a branch).
+    *   `--upgrade`: Attempt to upgrade all existing .taylored files in the workspace.
+    *   `--offset`: Update offsets in a selected .taylored file (optionally with a message). (You'll be prompted to choose a `.taylored` file).
+    *   `--data`: Extract and display metadata from a selected .taylored file. (You'll be prompted to choose a `.taylored` file).
 
-*   **`taylored-highlighter.refreshAllHighlights`**
-    *   **Title:** "Taylored: Refresh Highlights from All .taylored Files"
-    *   **Description:** Manually triggers a re-scan of all `.taylored` files in the `.taylored` directory and updates the highlights in the relevant files.
+## Line Highlighting
 
-## Configuration Options
+The extension reads `.taylored` files from the `.taylored/` directory in your workspace.
+-   **Added Lines**: Lines marked for addition are highlighted (default: green underline).
+-   **Removed Lines**: The line *before* a block of removed lines is underlined (default: red underline) to indicate the deletion.
+-   **Hover Information**: Hovering over a highlighted line will display information provided by the `taylored` CLI, such as the reason for the change or metadata.
 
-You can configure the extension's behavior through your VS Code settings (`settings.json`). All options are available under the `tayloredHighlighter` prefix:
+## Configuration
 
-*   **`tayloredHighlighter.addedLineUnderlineStyle`**
-    *   Description: The CSS style for the underline on added lines (e.g., `solid`, `dashed`, `dotted`, `double`, `wavy`).
-    *   Type: `string`
-    *   Default: `dotted`
-*   **`tayloredHighlighter.addedLineUnderlineColor`**
-    *   Description: The color of the underline for added lines. This is used if no theme-specific color is set.
-    *   Type: `string`
-    *   Default: `green`
-*   **`tayloredHighlighter.addedLineUnderlineColorLight`**
-    *   Description: The color of the underline for added lines when a light theme is active.
-    *   Type: `string`
-    *   Default: `darkgreen`
-*   **`tayloredHighlighter.addedLineUnderlineColorDark`**
-    *   Description: The color of the underline for added lines when a dark theme is active.
-    *   Type: `string`
-    *   Default: `lightgreen`
-*   **`tayloredHighlighter.removedLineUnderlineStyle`**
-    *   Description: The CSS style for the underline on removed lines (e.g., `solid`, `dashed`, `dotted`, `double`, `wavy`).
-    *   Type: `string`
-    *   Default: `dashed`
-*   **`tayloredHighlighter.removedLineUnderlineColor`**
-    *   Description: The color of the underline for removed lines. This is used if no theme-specific color is set.
-    *   Type: `string`
-    *   Default: `red`
-*   **`tayloredHighlighter.removedLineUnderlineColorLight`**
-    *   Description: The color of the underline for removed lines when a light theme is active.
-    *   Type: `string`
-    *   Default: `#990000`
-*   **`tayloredHighlighter.removedLineUnderlineColorDark`**
-    *   Description: The color of the underline for removed lines when a dark theme is active.
-    *   Type: `string`
-    *   Default: `#ff7f7f`
-*   **`tayloredHighlighter.removedLineGutterIconPath`**
-    *   Description: Path to an icon to display in the gutter for removed lines. Note: Gutter icons for removed lines are not currently implemented; underlines are used instead.
-    *   Type: `string`
-    *   Default: `""`
+You can customize the appearance of the highlights via VS Code settings. These settings allow specifying different colors for light and dark themes.
 
-## License
+-   `tayloredHighlighter.addedLineUnderlineStyle`: Defines the style for added line highlights (e.g., `solid`, `dashed`, `dotted`).
+-   `tayloredHighlighter.addedLineUnderlineColor`: Sets the default color for added line highlights.
+-   `tayloredHighlighter.addedLineUnderlineColorLight`: Sets the color for added line highlights when a light theme is active.
+-   `tayloredHighlighter.addedLineUnderlineColorDark`: Sets the color for added line highlights when a dark theme is active.
+-   `tayloredHighlighter.removedLineUnderlineStyle`: Defines the style for removed line highlights.
+-   `tayloredHighlighter.removedLineUnderlineColor`: Sets the default color for removed line highlights.
+-   `tayloredHighlighter.removedLineUnderlineColorLight`: Sets the color for removed line highlights when a light theme is active.
+-   `tayloredHighlighter.removedLineUnderlineColorDark`: Sets the color for removed line highlights when a dark theme is active.
 
-This extension is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+Access these settings via `File > Preferences > Settings` and search for "tayloredHighlighter".
+
+## File Watcher & Automatic Updates
+
+-   The extension monitors files within the `.taylored/` directory. Changes to these files will trigger an automatic refresh of the highlights in the corresponding source files.
+-   Highlights are also automatically refreshed after certain `taylored` commands (like `--save`, `--add`, `--remove`) are executed, assuming these commands modify the `.taylored` files.
+
+## Troubleshooting
+
+-   **Highlights not appearing**:
+    *   Ensure the `taylored` CLI is installed and in your PATH.
+    *   Verify that your project has a `.taylored/` directory at the root with valid `.taylored` files.
+    *   Check the VS Code Output panel (select "Taylored" or "Log (Window)" from the dropdown for general extension messages, or specific "Taylored" task outputs if commands are run) for any error messages.
+-   **Incorrect highlights**:
+    *   Ensure your `.taylored` files are correctly formatted and up-to-date.
+    *   Try running `taylored --save` to ensure the latest changes are written.
+-   **Performance issues**:
+    *   For very large projects or numerous `.taylored` files, performance might be affected. Consider if all files need active monitoring. (Future enhancements may address this).
+
+For further issues, please report them on the extension's GitHub repository.
