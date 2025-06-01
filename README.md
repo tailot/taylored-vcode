@@ -28,9 +28,7 @@ This VS Code extension integrates the `taylored` CLI to provide seamless interac
     *   `--verify-add`: Check if a selected .taylored patch can be applied. (You'll be prompted to choose a `.taylored` file).
     *   `--verify-remove`: Check if a selected .taylored patch can be removed. (You'll be prompted to choose a `.taylored` file).
     *   `--save`: Create a .taylored file from a selected branch's changes. (You'll be prompted to select a branch).
-    *   `--upgrade`: Attempt to upgrade all existing .taylored files in the workspace.
     *   `--offset`: Update offsets in a selected .taylored file (optionally with a message). (You'll be prompted to choose a `.taylored` file).
-    *   `--data`: Extract and display metadata from a selected .taylored file. (You'll be prompted to choose a `.taylored` file).
 
 ## Line Highlighting
 
