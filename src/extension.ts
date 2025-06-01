@@ -165,7 +165,6 @@ export async function activate(context: vscode.ExtensionContext) {
                 { label: "--verify-remove", description: "Check if a patch can be removed (taylored --verify-remove)", actionKey: "verify-remove" },
                 { label: "--save", description: "Create a .taylored file from branch changes (taylored --save)", actionKey: "save" },
                 { label: "--offset", description: "Update offsets in a .taylored file (taylored --offset)", actionKey: "offset" },
-                { label: "--data", description: "Extract commit message from a .taylored file (taylored --data)", actionKey: "data" },
             ];
 
             const selectedAction = await vscode.window.showQuickPick(actionItems, {
@@ -175,13 +174,13 @@ export async function activate(context: vscode.ExtensionContext) {
             if (!selectedAction) return;
 
             const tayloredFiles = await getTayloredFilesList(workspaceRoot);
-            if (tayloredFiles === undefined && ['add', 'remove', 'verify-add', 'verify-remove', 'offset', 'data'].includes(selectedAction.actionKey)) {
+            if (tayloredFiles === undefined && ['add', 'remove', 'verify-add', 'verify-remove', 'offset'].includes(selectedAction.actionKey)) {
                  vscode.window.showErrorMessage("Could not get the list of .taylored files.");
                 return;
             }
 
             let originalSelectedFile: string | undefined;
-            if (['add', 'remove', 'verify-add', 'verify-remove', 'offset', 'data'].includes(selectedAction.actionKey)) {
+            if (['add', 'remove', 'verify-add', 'verify-remove', 'offset'].includes(selectedAction.actionKey)) {
                 if (!tayloredFiles || tayloredFiles.length === 0) {
                     vscode.window.showInformationMessage("No .taylored files found in the .taylored directory.");
                     return;
@@ -243,11 +242,6 @@ export async function activate(context: vscode.ExtensionContext) {
                             offsetArgs.push('--message', commitMessage);
                         }
                         await runTayloredCommand(offsetArgs, { cwd: workspaceRoot, successMessage: `Offset update for ${originalSelectedFile}.taylored completed.`, showOutput: true });
-                    }
-                    break;
-                case 'data':
-                    if (originalSelectedFile && commandFileArg !== undefined) {
-                       await runTayloredCommand(['--data', commandFileArg], { cwd: workspaceRoot, showOutput: true });
                     }
                     break;
             }
