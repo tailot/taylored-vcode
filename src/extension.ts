@@ -75,7 +75,7 @@ async function runTayloredCommand(args: string[], options: { cwd: string, succes
                          vscode.window.showInformationMessage(`Command: ${command}\nExecuted successfully, no specific output produced.`, { modal: true });
                     }
                     console.log(`Command '${command}' executed successfully. Output:\n${stdout}`);
-                    if (args[0] === '--add' || args[0] === '--remove' || args[0] === '--save' || args[0] === '--upgrade' || args[0] === '--offset') {
+                    if (args[0] === '--add' || args[0] === '--remove' || args[0] === '--save' || args[0] === '--offset') {
                         vscode.commands.executeCommand('taylored-highlighter.refreshAllHighlights');
                     }
                     resolve({ success: true, stdout, stderr });
