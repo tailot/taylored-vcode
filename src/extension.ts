@@ -164,7 +164,6 @@ export async function activate(context: vscode.ExtensionContext) {
                 { label: "--verify-add", description: "Check if a patch can be applied (taylored --verify-add)", actionKey: "verify-add" },
                 { label: "--verify-remove", description: "Check if a patch can be removed (taylored --verify-remove)", actionKey: "verify-remove" },
                 { label: "--save", description: "Create a .taylored file from branch changes (taylored --save)", actionKey: "save" },
-                { label: "--upgrade", description: "Attempt to upgrade all existing .taylored files (taylored --upgrade)", actionKey: "upgrade" },
                 { label: "--offset", description: "Update offsets in a .taylored file (taylored --offset)", actionKey: "offset" },
                 { label: "--data", description: "Extract commit message from a .taylored file (taylored --data)", actionKey: "data" },
             ];
@@ -232,9 +231,6 @@ export async function activate(context: vscode.ExtensionContext) {
                     if (selectedBranch) {
                         await runTayloredCommand(['--save', selectedBranch], { cwd: workspaceRoot, successMessage: `.taylored file for branch '${selectedBranch}' saved successfully (if changes were pure).`, showOutput: true });
                     }
-                    break;
-                case 'upgrade':
-                    await runTayloredCommand(['--upgrade'], { cwd: workspaceRoot, successMessage: "Attempt to upgrade .taylored files completed.", showOutput: true });
                     break;
                 case 'offset':
                     if (originalSelectedFile && commandFileArg !== undefined) {
