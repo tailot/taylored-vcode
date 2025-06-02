@@ -153,8 +153,6 @@ export async function activate(context: vscode.ExtensionContext) {
             const actionItems: (vscode.QuickPickItem & { actionKey: string })[] = [
                 { label: "--add", description: "Apply a selected .taylored file (taylored --add)", actionKey: "add" },
                 { label: "--remove", description: "Remove changes from a .taylored file (taylored --remove)", actionKey: "remove" },
-                { label: "--verify-add", description: "Check if a patch can be applied (taylored --verify-add)", actionKey: "verify-add" },
-                { label: "--verify-remove", description: "Check if a patch can be removed (taylored --verify-remove)", actionKey: "verify-remove" },
                 { label: "--save", description: "Create a .taylored file from branch changes (taylored --save)", actionKey: "save" },
                 { label: "--offset", description: "Update offsets in a .taylored file (taylored --offset)", actionKey: "offset" },
             ];
@@ -166,13 +164,13 @@ export async function activate(context: vscode.ExtensionContext) {
             if (!selectedAction) return;
 
             const tayloredFiles = await getTayloredFilesList(workspaceRoot);
-            if (tayloredFiles === undefined && ['add', 'remove', 'verify-add', 'verify-remove', 'offset'].includes(selectedAction.actionKey)) {
+            if (tayloredFiles === undefined && ['add', 'remove', 'offset'].includes(selectedAction.actionKey)) {
                  vscode.window.showErrorMessage("Could not get the list of .taylored files.");
                 return;
             }
 
             let originalSelectedFile: string | undefined;
-            if (['add', 'remove', 'verify-add', 'verify-remove', 'offset'].includes(selectedAction.actionKey)) {
+            if (['add', 'remove', 'offset'].includes(selectedAction.actionKey)) {
                 if (!tayloredFiles || tayloredFiles.length === 0) {
                     vscode.window.showInformationMessage("No .taylored files found in the .taylored directory.");
                     return;
@@ -198,16 +196,6 @@ export async function activate(context: vscode.ExtensionContext) {
                 case 'remove':
                     if (originalSelectedFile && commandFileArg !== undefined) {
                         await runTayloredCommand(['--remove', commandFileArg], { cwd: workspaceRoot, successMessage: `Changes from ${originalSelectedFile}.taylored removed successfully.`, showOutput: true });
-                    }
-                    break;
-                case 'verify-add':
-                     if (originalSelectedFile && commandFileArg !== undefined) {
-                        await runTayloredCommand(['--verify-add', commandFileArg], { cwd: workspaceRoot, successMessage: `Application check for ${originalSelectedFile}.taylored completed.`, showOutput: true });
-                    }
-                    break;
-                case 'verify-remove':
-                    if (originalSelectedFile && commandFileArg !== undefined) {
-                        await runTayloredCommand(['--verify-remove', commandFileArg], { cwd: workspaceRoot, successMessage: `Removal check for ${originalSelectedFile}.taylored completed.`, showOutput: true });
                     }
                     break;
                 case 'save':
