@@ -2,7 +2,7 @@
   "name": "taylored-highlighter",
   "displayName": "Taylored Highlighter & Manager",
   "description": "Highlights changes from .taylored patch files and provides commands to manage them.",
-  "version": "0.9.0",
+  "version": "1.0.0",
   "publisher": "tailot",
   "repository": {
     "type": "git",
